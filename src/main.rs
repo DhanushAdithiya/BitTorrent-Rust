@@ -1,4 +1,8 @@
-fn decode_bencode(encoded_value: &str) -> serde_json::Value {
+// use serde::Deserialize;
+
+use core::panic;
+
+fn decode_bencode(encoded_value: &str) -> (serde_json::Value, &str) {
     match encoded_value.chars().nth(0).unwrap() {
         'i' => decode_bencoded_int(encoded_value),
         'l' => decode_bencoded_list(encoded_value),
@@ -7,71 +11,58 @@ fn decode_bencode(encoded_value: &str) -> serde_json::Value {
     }
 }
 
-fn decode_bencoded_strings(encoded_strings: &str) -> serde_json::Value {
-    let colon_index = encoded_strings.find(":").unwrap();
-    let str_len = &encoded_strings[..colon_index].parse::<usize>().unwrap();
-    let split = &encoded_strings[colon_index + 1..colon_index + 1 + str_len];
-    return serde_json::Value::String(split.to_string());
+fn decode_bencoded_strings(encoded_strings: &str) -> (serde_json::Value, &str) {
+    let (len, string_slice) = encoded_strings.split_once(":").unwrap();
+    let split_string = &string_slice[..len.parse::<usize>().unwrap()];
+    return (
+        split_string.to_string().into(),
+        &string_slice[len.parse::<usize>().unwrap()..],
+    );
 }
 
-fn decode_bencoded_int(encoded_strings: &str) -> serde_json::Value {
+fn decode_bencoded_int(encoded_strings: &str) -> (serde_json::Value, &str) {
     let e_index = encoded_strings.find("e").unwrap();
     let int = encoded_strings[1..e_index]
         .parse::<isize>()
         .expect("Not a Number");
-    return serde_json::Value::Number(int.into());
+    return (int.into(), &encoded_strings[e_index + 1..]);
 }
 
-fn decode_bencoded_list(encoded_strings: &str) -> serde_json::Value {
+fn decode_bencoded_list(encoded_strings: &str) -> (serde_json::Value, &str) {
     let mut remaining = &encoded_strings[1..encoded_strings.len() - 1];
     let mut list = Vec::new();
 
-    while remaining.len() > 3 {
-        let op = decode_bencode(remaining);
-        match op.is_number() {
-            true => {
-                remaining = &remaining[2 + &op.to_string().len()..];
-                list.push(op);
-            }
-            false => {
-                let colon_index = remaining.find(":").unwrap();
-                remaining = &remaining[colon_index + &op.as_str().unwrap().len() + 1..];
-                list.push(op);
-            }
-        }
+    while !remaining.is_empty() && remaining.chars().nth(0).unwrap() != 'e' {
+        let (value, rem) = decode_bencode(remaining);
+        list.push(value);
+        remaining = rem;
     }
 
-    return serde_json::Value::Array(list);
+    return (list.into(), remaining);
 }
 
-fn decode_bencoded_dict(encoded_strings: &str) -> serde_json::Value {
+fn decode_bencoded_dict(encoded_strings: &str) -> (serde_json::Value, &str) {
     let mut dict = serde_json::Map::new();
     let mut remaining = &encoded_strings[1..encoded_strings.len() - 1];
-    while remaining.len() > 3 {
-        let key = decode_bencode(remaining);
-        let colon_index = remaining.find(":").unwrap();
-        remaining = &remaining[colon_index + &key.as_str().unwrap().len() + 1..];
-
-        let value = decode_bencode(remaining);
-        let _ = match value {
-            serde_json::Value::Number(_) => {
-                remaining = &remaining[2 + &value.to_string().len()..];
-            }
-            serde_json::Value::String(_) => {
-                let colon_index = remaining.find(":").unwrap();
-                remaining = &remaining[colon_index + &value.as_str().unwrap().len() + 1..];
-            }
-            _ => {
-                panic!("TODO")
+    while !remaining.is_empty() && remaining.chars().nth(0).unwrap() != 'e' {
+        println!("{remaining}");
+        let (key, rem) = decode_bencode(remaining);
+        let key = match key {
+            serde_json::Value::String(key) => key,
+            key => {
+                panic!("Key has to be a String {key:?}")
             }
         };
-
-        dict.insert(String::from(key.as_str().unwrap()), value);
+        let (value, rem) = decode_bencode(rem);
+        dict.insert(String::from(key), value);
+        remaining = rem;
     }
 
-    return dict.into();
+    return (dict.into(), remaining);
 }
 
 fn main() {
-    println!("{}", decode_bencode("d5:hello3:hele"))
+    let encoded_value = "l5:hellol4:spami32eee";
+    let decoded = decode_bencode(encoded_value);
+    println!("{}", decoded.0.to_string())
 }
