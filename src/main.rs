@@ -1,6 +1,8 @@
-// use serde::Deserialize;
-
+use anyhow::Ok;
 use core::panic;
+use serde::Deserialize;
+use sha1::Sha1Core;
+use std::{env, fs, path::PathBuf};
 
 fn decode_bencode(encoded_value: &str) -> (serde_json::Value, &str) {
     match encoded_value.chars().nth(0).unwrap() {
@@ -45,7 +47,6 @@ fn decode_bencoded_dict(encoded_strings: &str) -> (serde_json::Value, &str) {
     let mut dict = serde_json::Map::new();
     let mut remaining = &encoded_strings[1..encoded_strings.len() - 1];
     while !remaining.is_empty() && remaining.chars().nth(0).unwrap() != 'e' {
-        println!("{remaining}");
         let (key, rem) = decode_bencode(remaining);
         let key = match key {
             serde_json::Value::String(key) => key,
@@ -61,8 +62,39 @@ fn decode_bencoded_dict(encoded_strings: &str) -> (serde_json::Value, &str) {
     return (dict.into(), remaining);
 }
 
-fn main() {
-    let encoded_value = "l5:hellol4:spami32eee";
-    let decoded = decode_bencode(encoded_value);
-    println!("{}", decoded.0.to_string())
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct Torrent {
+    announce: String,
+    info: Info,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct Info {
+    length: usize,
+    name: String,
+    #[serde(rename = "piece length")]
+    piece_length: usize,
+}
+
+fn main() -> Result<(), anyhow::Error> {
+    let args: Vec<String> = env::args().collect();
+    match args[1].as_str() {
+        "decode" => {
+            let decoded = decode_bencode(&args[2]);
+            println!("{}", decoded.0);
+        }
+        "info" => {
+            let p = PathBuf::from(env::args().nth(2).expect("No path has been provided"));
+            let torrent = fs::read(p)?;
+            let content: Torrent = serde_bencode::from_bytes(&torrent).unwrap();
+            // let (data, _) = decode_bencode(content);
+            println!("{:?}", content);
+        }
+        _ => {
+            panic!("Unknown command")
+        }
+    }
+    Ok(())
 }
